@@ -3,20 +3,17 @@ using UnityEngine;
 [CreateAssetMenu(menuName = "Ballistics/Weapon")]
 public class WeaponData : ScriptableObject
 {
-    [Header("Identificación")]
-    [SerializeField] private string weaponName;
+    [Header("Identification")]
+    public string weaponName = "Glock 19 Gen5";
 
-    [Header("Compatibilidad")]
-    [SerializeField] private AmmoData[] supportedAmmo;
+    [Header("Compatibility")]
+    public AmmoData[] supportedAmmo;
 
-    [Header("Características del arma")]
-    [SerializeField] private float barrelLengthMeters;
-    [SerializeField] private float accuracyMOA;
-    [SerializeField] private float velocityMultiplier; // ajuste por cañón
+    [Header("Characteristics")]
+    public float barrelLengthMeters = 0.102f;
+    public float accuracyMOA = 6.0f;
+    public float velocityMultiplier = 0.95f;
 
-    public string WeaponName => weaponName;
-    public AmmoData[] SupportedAmmo => supportedAmmo;
-    public float BarrelLength => barrelLengthMeters;
-    public float AccuracyMOA => accuracyMOA;
-    public float VelocityMultiplier => velocityMultiplier;
+    // optional: mass of weapon for recoil calc (if you prefer centralizing here)
+    public float weaponMassKg = 0.61f;
 }
