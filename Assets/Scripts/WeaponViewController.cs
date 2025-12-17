@@ -1,25 +1,15 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-/// <summary>
-/// WeaponViewController
-/// - Attach to WeaponHolder (under WeaponRig).
-/// - Controls Idle/Aim poses (local), mouse aiming offsets, sway, recoil.
-/// - Exposes AddRecoil(posLocal, rotEuler).
-/// </summary>
 public class WeaponViewController : MonoBehaviour, IWeaponView
 {
     public enum WeaponState { Idle, Aim }
 
     [Header("References / Pose (local to WeaponHolder)")]
-    [Tooltip("Local position when not aiming")]
     public Vector3 idleLocalPosition = new Vector3(0.15f, -0.15f, 0.35f);
-    [Tooltip("Local Euler rotation when not aiming (degrees)")]
     public Vector3 idleLocalRotation = new Vector3(0f, 10f, 0f);
 
-    [Tooltip("Local position when aiming")]
     public Vector3 aimLocalPosition = new Vector3(0f, -0.05f, 0.15f);
-    [Tooltip("Local Euler rotation when aiming (degrees)")]
     public Vector3 aimLocalRotation = new Vector3(0f, 0f, 0f);
 
     [Header("Input / Aim")]
@@ -31,8 +21,7 @@ public class WeaponViewController : MonoBehaviour, IWeaponView
     public float breathFrequency = 0.25f;
     public float tremorAmplitudeDeg = 0.18f;
     public float tremorFrequency = 6.0f;
-    [Range(0f, 1f)]
-    public float aimSwayReduction = 0.6f;
+    [Range(0f, 1f)] public float aimSwayReduction = 0.6f;
 
     [Header("Inertia / Reactive")]
     public float mouseInertiaMultiplier = 0.6f;
@@ -58,26 +47,30 @@ public class WeaponViewController : MonoBehaviour, IWeaponView
     private Vector2 reactiveOffset = Vector2.zero;
 
     // recoil accumulators (local space)
-    private Vector3 recoilPosOffset = Vector3.zero;   // meters local
-    private Vector3 recoilRotEuler = Vector3.zero;    // degrees local (pitch, yaw, roll)
+    private Vector3 recoilPosOffset = Vector3.zero;
+    private Vector3 recoilRotEuler = Vector3.zero;
     private Vector2 aimAnglesVelocity; // usado por SmoothDamp
     private bool aimLocked = false;
+
     private void Awake()
     {
         aimAction = new InputAction("Aim", InputActionType.Button, "<Mouse>/rightButton");
         mouseDeltaAction = new InputAction("MouseDelta", InputActionType.PassThrough, "<Mouse>/delta");
-
-        aimAction.Enable();
-        mouseDeltaAction.Enable();
-
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
     }
 
-    private void OnDestroy()
+    private void OnEnable()
     {
-        aimAction.Disable();
-        mouseDeltaAction.Disable();
+        aimAction?.Enable();
+        mouseDeltaAction?.Enable();
+        // don't lock cursor here — we manage cursor per-frame depending on state
+    }
+
+    private void OnDisable()
+    {
+        aimAction?.Disable();
+        mouseDeltaAction?.Disable();
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
     }
 
     private void Update()
@@ -85,19 +78,36 @@ public class WeaponViewController : MonoBehaviour, IWeaponView
         if (aimLocked)
             currentState = WeaponState.Idle;
         else
-            currentState = aimAction.IsPressed() ? WeaponState.Aim : WeaponState.Idle;
-        
+            currentState = (aimAction != null && aimAction.IsPressed()) ? WeaponState.Aim : WeaponState.Idle;
+
+        // Cursor handling: lock only while aiming; unlock in Idle so UI is interactable
+        if (IsAiming)
+        {
+            if (Cursor.lockState != CursorLockMode.Locked)
+            {
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+            }
+        }
+        else
+        {
+            if (Cursor.lockState != CursorLockMode.None)
+            {
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+            }
+        }
 
         HandleMouseAim();
         ApplySwayAndPoseWithRecoil();
     }
+
     public void ForceExitAimLock(bool locked)
     {
         aimLocked = locked;
 
         if (locked)
         {
-            // forzar volver a idle y resetear offsets
             currentState = WeaponState.Idle;
             ResetAimOffsets();
         }
@@ -105,7 +115,7 @@ public class WeaponViewController : MonoBehaviour, IWeaponView
 
     private void HandleMouseAim()
     {
-        Vector2 md = mouseDeltaAction.ReadValue<Vector2>();
+        Vector2 md = mouseDeltaAction != null ? mouseDeltaAction.ReadValue<Vector2>() : Vector2.zero;
 
         if (IsAiming)
         {
@@ -122,15 +132,13 @@ public class WeaponViewController : MonoBehaviour, IWeaponView
         }
         else
         {
-            aimAngles = Vector2.SmoothDamp(aimAngles,Vector2.zero,ref aimAnglesVelocity,0.08f,Mathf.Infinity,Time.deltaTime);
-
+            aimAngles = Vector2.SmoothDamp(aimAngles, Vector2.zero, ref aimAnglesVelocity, 0.08f, Mathf.Infinity, Time.deltaTime);
             reactiveOffset = Vector2.Lerp(reactiveOffset, Vector2.zero, Time.deltaTime * mouseInertiaReturnSpeed);
         }
     }
 
     private void ApplySwayAndPoseWithRecoil()
     {
-        // sway
         float breathAmp = breathAmplitudeDeg * (IsAiming ? aimSwayReduction : 1f);
         float breath = (Mathf.PerlinNoise(Time.time * breathFrequency, 0f) - 0.5f) * 2f * breathAmp;
         float tremorAmp = tremorAmplitudeDeg * (IsAiming ? aimSwayReduction : 1f);
@@ -142,43 +150,33 @@ public class WeaponViewController : MonoBehaviour, IWeaponView
             0f
         );
 
-        // target base pose (local)
         Vector3 targetPosLocal = IsAiming ? aimLocalPosition : idleLocalPosition;
         Vector3 targetRotEuler = IsAiming ? aimLocalRotation : idleLocalRotation;
 
-        // final position = base + recoilPosOffset
         Vector3 finalPosLocal = targetPosLocal + recoilPosOffset;
 
-        // final rotation: base * sway * recoil (using quaternions)
         Quaternion baseRot = Quaternion.Euler(targetRotEuler);
         Quaternion swayQuat = Quaternion.Euler(swayRotation);
         Quaternion recoilQuat = Quaternion.Euler(recoilRotEuler);
         Quaternion finalQuatLocal = baseRot * swayQuat * recoilQuat;
 
-        // apply smooth interpolation
         transform.localPosition = Vector3.Lerp(transform.localPosition, finalPosLocal, Time.deltaTime * transformLerpSpeed);
         transform.localRotation = Quaternion.Slerp(transform.localRotation, finalQuatLocal, Time.deltaTime * transformLerpSpeed);
 
-        // decay recoil offsets over time (smooth return)
         recoilPosOffset = Vector3.Lerp(recoilPosOffset, Vector3.zero, Time.deltaTime * recoilPosReturn);
         recoilRotEuler = Vector3.Lerp(recoilRotEuler, Vector3.zero, Time.deltaTime * recoilRotReturn);
     }
 
-    /// <summary>
-    /// Public API: apply an instant recoil impulse.
-    /// posImpulseLocal: local-space positional impulse (e.g., (0,0,-0.02f))
-    /// rotImpulseEuler: local-space euler degrees impulse (pitch up is positive X)
-    /// </summary>
     public void AddRecoil(Vector3 posImpulseLocal, Vector3 rotImpulseEuler)
     {
         recoilPosOffset += posImpulseLocal;
         recoilRotEuler += rotImpulseEuler;
     }
 
-    // optional: allow external reset of aim offsets
     public void ResetAimOffsets()
     {
         aimAngles = Vector2.zero;
         reactiveOffset = Vector2.zero;
+        aimAnglesVelocity = Vector2.zero;
     }
 }

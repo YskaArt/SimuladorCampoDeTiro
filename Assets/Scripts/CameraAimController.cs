@@ -37,4 +37,12 @@ public class CameraAimController : MonoBehaviour
             transform.rotation = Quaternion.Slerp(transform.rotation, defaultWorldRot, Time.deltaTime * rotationSpeed);
         }
     }
+
+    /// <summary>
+    /// Assigns a new sight point transform at runtime (called by inventory manager when model is instantiated).
+    /// </summary>
+    public void SetSightPoint(Transform t)
+    {
+        sightCameraPoint = t;
+    }
 }

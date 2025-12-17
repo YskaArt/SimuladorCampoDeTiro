@@ -6,7 +6,7 @@ public class WeaponShooter : MonoBehaviour
     [Header("Data")]
     [SerializeField] private WeaponData weapon;
     [SerializeField] private AmmoData ammo;
-    [SerializeField] private Transform muzzle;
+    [SerializeField] public Transform muzzle; // made public for runtime assignment
     [SerializeField] private LayerMask hitMask;
 
     [Header("Fire Rate")]
@@ -35,9 +35,8 @@ public class WeaponShooter : MonoBehaviour
 
     private void Awake()
     {
-        timeBetweenShots = 60f / fireRate;
+        timeBetweenShots = 60f / Mathf.Max(0.0001f, fireRate);
         fireAction = new InputAction("Fire", InputActionType.Button, "<Mouse>/leftButton");
-        fireAction.Enable();
 
         // auto-find if not set
         if (weaponView == null)
@@ -47,19 +46,27 @@ public class WeaponShooter : MonoBehaviour
             weaponMassKg = weapon.weaponMassKg;
     }
 
-    private void OnDestroy()
+    private void OnEnable()
     {
-        fireAction.Disable();
+        fireAction?.Enable();
+    }
+
+    private void OnDisable()
+    {
+        fireAction?.Disable();
     }
 
     private void Update()
     {
-        if (fireAction.WasPressedThisFrame())
+        if (fireAction != null && fireAction.WasPressedThisFrame())
             TryFire();
     }
 
     private void TryFire()
     {
+        if (weaponView == null)
+            weaponView = GetComponentInParent<WeaponViewController>();
+
         // 1. No disparar si no está apuntando
         if (weaponView != null && !weaponView.IsAiming)
             return;
@@ -76,7 +83,6 @@ public class WeaponShooter : MonoBehaviour
         Fire();
     }
 
-
     private void Fire()
     {
         if (ammo == null || muzzle == null) return;
@@ -84,9 +90,11 @@ public class WeaponShooter : MonoBehaviour
         float finalVelocity = ammo.MuzzleVelocity * (weapon != null ? weapon.velocityMultiplier : 1f);
         Vector3 direction = muzzle.forward;
 
-        // ... (existing dispersion + shot creation) ...
+        float moa = (weapon != null) ? weapon.accuracyMOA : 6.0f;
+        float angleRad = moa * Mathf.Deg2Rad / 60f;
+        Vector2 rnd = Random.insideUnitCircle * angleRad;
+        direction = Quaternion.Euler(rnd.x * Mathf.Rad2Deg, rnd.y * Mathf.Rad2Deg, 0f) * direction;
 
-        // instantiate projectile (uses Projectile.Initialize)
         if (bulletPrefab != null)
         {
             GameObject b = Instantiate(bulletPrefab, muzzle.position, Quaternion.LookRotation(direction));
@@ -102,7 +110,6 @@ public class WeaponShooter : MonoBehaviour
             }
         }
 
-        // realtime recoil via RecoilPivot (as ya tenés)
         if (recoilPivot != null)
         {
             float momentum = ammo.MassKg * finalVelocity;
@@ -114,8 +121,35 @@ public class WeaponShooter : MonoBehaviour
             recoilPivot.AddRecoil(pitchDeg, yawDeg, rollDeg, backMove);
         }
 
-        // notify shot manager
         ShotManager.Instance?.NotifyShotFired();
     }
 
+    // -------------------------
+    // Public API for runtime assignment
+    // -------------------------
+    public void SetWeaponReference(WeaponData newWeapon, AmmoData newAmmo)
+    {
+        this.weapon = newWeapon;
+        this.ammo = newAmmo;
+
+        if (newWeapon != null && newWeapon.weaponMassKg > 0f)
+            weaponMassKg = newWeapon.weaponMassKg;
+
+        // recalc timing if weapon has different fireRate? (left for future)
+    }
+
+    public void SetMuzzle(Transform muzzleTransform)
+    {
+        muzzle = muzzleTransform;
+    }
+    public void SetRecoilPivot(WeaponRecoilPivot pivot)
+    {
+        recoilPivot = pivot;
+    }
+
+    public void SetFireRateRPM(float rpm)
+    {
+        fireRate = Mathf.Max(0.0001f, rpm);
+        timeBetweenShots = 60f / fireRate;
+    }
 }

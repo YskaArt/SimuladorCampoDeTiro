@@ -1,4 +1,5 @@
 ﻿using UnityEngine;
+using static UnityEngine.GraphicsBuffer;
 
 [RequireComponent(typeof(Collider))]
 public class Projectile : MonoBehaviour
@@ -25,7 +26,7 @@ public class Projectile : MonoBehaviour
         }
 
         velocity = initialVelocity;
-        hitMask = mask;
+        hitMask = (mask == 0) ? Physics.DefaultRaycastLayers : mask; // <-- garantía
         aliveTime = 0f;
     }
 
@@ -34,14 +35,12 @@ public class Projectile : MonoBehaviour
         float dt = Time.deltaTime;
         Vector3 prevPos = transform.position;
 
-        // forces
         Vector3 drag = BallisticCalculator.CalculateDragForce(velocity, dragCoefficient, frontalArea);
         Vector3 accel = drag / massKg + Physics.gravity;
 
         velocity += accel * dt;
         Vector3 nextPos = prevPos + velocity * dt;
 
-        // raycast for collision
         Vector3 dir = nextPos - prevPos;
         float dist = dir.magnitude;
 
@@ -49,13 +48,20 @@ public class Projectile : MonoBehaviour
         {
             if (Physics.Raycast(prevPos, dir.normalized, out RaycastHit hit, dist, hitMask))
             {
-                // move exactly to hit point
+                // move exactly to hit point (prevents visual overshoot)
                 transform.position = hit.point;
 
-                // notify manager so it places marker / records hit
-                ShotManager.Instance?.RegisterHit(hit);
+                // compute energy
+                float speed = velocity.magnitude;
+                float energy = 0.5f * massKg * speed * speed;
 
-                // destroy this projectile
+                // notify target if implements ITarget
+                var target = hit.collider != null ? hit.collider.GetComponentInParent<ITarget>() : null;
+                target?.OnHit(hit, energy, velocity);
+
+                // notify shot manager (stores hit record)
+                ShotManager.Instance?.RegisterHit(hit, energy, velocity);
+
                 Destroy(gameObject);
                 return;
             }

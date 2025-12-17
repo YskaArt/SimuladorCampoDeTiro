@@ -1,0 +1,21 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b723efd16518d33499c8464f3dec64f3, type: 3}
+  m_Name: M1 Garand
+  m_EditorClassIdentifier: Assembly-CSharp::WeaponData
+  weaponName: M1 Garand
+  supportedAmmo:
+  - {fileID: 11400000, guid: 7ebccb64231a8f54aaf73cf4bc1bb622, type: 2}
+  barrelLengthMeters: 0.61
+  accuracyMOA: 2.5
+  velocityMultiplier: 1.6
+  weaponMassKg: 4.32
