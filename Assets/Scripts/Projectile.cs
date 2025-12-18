@@ -1,22 +1,20 @@
 ﻿using UnityEngine;
-using static UnityEngine.GraphicsBuffer;
 
 [RequireComponent(typeof(Collider))]
 public class Projectile : MonoBehaviour
 {
-    [Header("Ballistics (initialized from AmmoData)")]
     public float massKg;
     public float dragCoefficient;
     public float frontalArea;
 
-    [Header("Simulation")]
     public float lifeTime = 5f;
     public LayerMask hitMask;
 
     private Vector3 velocity;
     private float aliveTime;
+    private int shotId = -1;
 
-    public void Initialize(AmmoData ammo, Vector3 initialVelocity, LayerMask mask)
+    public void Initialize(AmmoData ammo, Vector3 initialVelocity, LayerMask mask, int shotId = -1)
     {
         if (ammo != null)
         {
@@ -26,8 +24,9 @@ public class Projectile : MonoBehaviour
         }
 
         velocity = initialVelocity;
-        hitMask = (mask == 0) ? Physics.DefaultRaycastLayers : mask; // <-- garantía
+        hitMask = (mask == 0) ? Physics.DefaultRaycastLayers : mask;
         aliveTime = 0f;
+        this.shotId = shotId;
     }
 
     private void Update()
@@ -36,7 +35,7 @@ public class Projectile : MonoBehaviour
         Vector3 prevPos = transform.position;
 
         Vector3 drag = BallisticCalculator.CalculateDragForce(velocity, dragCoefficient, frontalArea);
-        Vector3 accel = drag / massKg + Physics.gravity;
+        Vector3 accel = drag / Mathf.Max(0.00001f, massKg) + Physics.gravity;
 
         velocity += accel * dt;
         Vector3 nextPos = prevPos + velocity * dt;
@@ -48,29 +47,25 @@ public class Projectile : MonoBehaviour
         {
             if (Physics.Raycast(prevPos, dir.normalized, out RaycastHit hit, dist, hitMask))
             {
-                // move exactly to hit point (prevents visual overshoot)
                 transform.position = hit.point;
-
-                // compute energy
                 float speed = velocity.magnitude;
-                float energy = 0.5f * massKg * speed * speed;
+                float energy = 0.5f * Mathf.Max(0.00001f, massKg) * speed * speed;
 
-                // notify target if implements ITarget
                 var target = hit.collider != null ? hit.collider.GetComponentInParent<ITarget>() : null;
                 target?.OnHit(hit, energy, velocity);
 
-                // notify shot manager (stores hit record)
-                ShotManager.Instance?.RegisterHit(hit, energy, velocity);
-
+                ShotManager.Instance?.RegisterHit(shotId, hit, energy);
                 Destroy(gameObject);
                 return;
             }
         }
 
         transform.position = nextPos;
-
         aliveTime += dt;
         if (aliveTime > lifeTime)
+        {
+            ShotManager.Instance?.RegisterMiss(shotId, transform.position);
             Destroy(gameObject);
+        }
     }
 }

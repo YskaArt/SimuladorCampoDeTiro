@@ -1,74 +1,92 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
-using UnityEngine.UI;
 using UnityEngine.InputSystem;
 
 /// <summary>
-/// Versión extendida de ShotManager:
-/// - expos eventos OnFirstShot, OnMagazineEmpty, OnReloaded
-/// - SetAmmo(max, current)
+/// Registra disparos/hits/misses, guarda sesión (JSON/TXT/PNG) y controla recarga/lock.
 /// </summary>
 public class ShotManager : MonoBehaviour
 {
     public static ShotManager Instance { get; private set; }
 
-    [Header("Ammo (default)")]
+    [Header("Ammo")]
     [SerializeField] private int maxAmmo = 10;
     private int currentAmmo;
 
     [Header("UI")]
-    [SerializeField] private Text ammoText;
+    [SerializeField] private UnityEngine.UI.Text ammoText;
     [SerializeField] private GameObject reloadPrompt;
-    [SerializeField] private RawImage previewRawImage;
+
+    [Header("Preview")]
     [SerializeField] private Camera previewCamera;
+    [SerializeField] private UnityEngine.UI.RawImage previewRawImage;
 
     [Header("Markers")]
     [SerializeField] private GameObject hitMarkerPrefab;
     [SerializeField] private Transform markersRoot;
-    private List<GameObject> markers = new List<GameObject>();
-
-    [Header("References")]
-    [SerializeField] private WeaponViewController weaponView;
     [SerializeField] private float markerOffset = 0.01f;
+    private readonly List<GameObject> markers = new();
 
-    [Header("Out of Ammo Behavior")]
-    [SerializeField][Range(0.1f, 5f)] private float lockDelaySeconds = 1.5f;
-
+    [Header("Behavior")]
+    [SerializeField] private float lockDelaySeconds = 1.5f;
+    private Coroutine lockCoroutine;
     private InputAction reloadAction;
 
-    // events
-    public event Action OnFirstShot;
-    public event Action OnMagazineEmpty;
-    public event Action OnReloaded;
-
-    // Hit record (same as antes)
-    public struct HitRecord
+    [Serializable]
+    public class ShotRecord
     {
+        public int shotId;
         public float time;
-        public Vector3 worldPos;
-        public Vector3 localPos;
-        public float energyJ;
+        public float targetDistanceMeters;
+        public Vector3 predictedPoint;
+        public Vector3 hitPoint;
+        public bool hit;
         public string targetName;
+        public float deviationMeters;
+        public float deviationPercent;
+        public float angularErrorDeg;
+        public float angularErrorMOA;
+        public float angularErrorMrad;
+        public Vector2 offsetMeters;
+        public float energyJ;
+        public string explanation;
     }
-    private List<HitRecord> hitRecords = new List<HitRecord>();
 
-    private Coroutine lockCoroutine;
+    [Serializable]
+    public class SessionRecord
+    {
+        public string sessionName;
+        public string dateTime;
+        public string weaponName;
+        public float weaponMassKg;
+        public float barrelLengthMeters;
+        public string ammoName;
+        public float muzzleVelocity;
+        public int magazineSize;
+        public List<ShotRecord> shots = new();
+        public string screenshotFileName;
+    }
+
+    private readonly List<ShotRecord> shotRecords = new();
+    private int nextShotId = 0;
+
+    public event Action OnFirstShot;
+    public event Action OnReloaded;
 
     private void Awake()
     {
-        if (Instance != null && Instance != this) Destroy(gameObject);
-        else Instance = this;
+        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+        Instance = this;
 
         currentAmmo = maxAmmo;
-
         reloadAction = new InputAction("Reload", InputActionType.Button, "<Keyboard>/r");
         reloadAction.Enable();
 
         if (previewCamera != null && previewRawImage != null && previewCamera.targetTexture == null)
         {
-            int w = 256, h = 256;
-            RenderTexture rt = new RenderTexture(w, h, 16);
+            RenderTexture rt = new RenderTexture(512, 512, 16);
             rt.Create();
             previewCamera.targetTexture = rt;
             previewRawImage.texture = rt;
@@ -78,131 +96,207 @@ public class ShotManager : MonoBehaviour
         if (reloadPrompt != null) reloadPrompt.SetActive(false);
     }
 
-    private void OnDestroy()
-    {
-        reloadAction.Disable();
-        if (lockCoroutine != null) StopCoroutine(lockCoroutine);
-    }
+    private void OnDestroy() => reloadAction.Disable();
 
     private void Update()
     {
-        if (currentAmmo <= 0)
+        if (currentAmmo <= 0 && reloadAction.WasPressedThisFrame())
         {
-            if (reloadAction.WasPressedThisFrame())
-            {
-                Reload();
-            }
+            SaveSession();
+            Reload();
         }
     }
 
-    public bool CanFire()
-    {
-        return currentAmmo > 0;
-    }
+    public bool CanFire() => currentAmmo > 0;
 
-    /// <summary>
-    /// Set the magazine values (max and current). Call when weapon is equipped.
-    /// </summary>
     public void SetAmmo(int newMax, int newCurrent)
     {
-        maxAmmo = Mathf.Max(0, newMax);
+        maxAmmo = Mathf.Max(1, newMax);
         currentAmmo = Mathf.Clamp(newCurrent, 0, maxAmmo);
         UpdateUI();
     }
 
     public void NotifyShotFired()
     {
-        // detect first shot (when previous was full mag)
-        bool wasFull = (currentAmmo == maxAmmo);
-
         currentAmmo = Mathf.Max(0, currentAmmo - 1);
         UpdateUI();
 
-        if (wasFull)
-            OnFirstShot?.Invoke();
-
         if (currentAmmo == 0)
         {
-            OnMagazineEmpty?.Invoke();
-
             if (lockCoroutine != null) StopCoroutine(lockCoroutine);
             lockCoroutine = StartCoroutine(DelayedLockAfterLastShot());
         }
     }
 
-    private System.Collections.IEnumerator DelayedLockAfterLastShot()
+    public int RegisterShotFired(Vector3 muzzlePos, Vector3 muzzleDir, float muzzleVelocity)
     {
-        yield return new WaitForSeconds(lockDelaySeconds);
+        int id = nextShotId++;
+        float targetDist = 0f;
+        var tpc = FindObjectOfType<TargetPlacementController>();
+        if (tpc != null) targetDist = tpc.GetCurrentDistance();
+        Vector3 predicted = muzzlePos + muzzleDir.normalized * targetDist;
 
-        if (weaponView != null)
-            weaponView.ForceExitAimLock(true);
-        if (reloadPrompt != null)
-            reloadPrompt.SetActive(true);
+        var rec = new ShotRecord
+        {
+            shotId = id,
+            time = Time.time,
+            targetDistanceMeters = targetDist,
+            predictedPoint = predicted
+        };
 
-        lockCoroutine = null;
+        shotRecords.Add(rec);
+        if (shotRecords.Count == 1) OnFirstShot?.Invoke();
+        return id;
+    }
+
+    public void RegisterHit(int shotId, RaycastHit hit, float energyJ)
+    {
+        var rec = shotRecords.Find(s => s.shotId == shotId);
+        if (rec == null) { Debug.LogWarning($"RegisterHit unknown id {shotId}"); return; }
+
+        rec.hit = true;
+        rec.hitPoint = hit.point;
+        rec.targetName = hit.collider != null ? hit.collider.name : "Unknown";
+        rec.energyJ = energyJ;
+
+        ComputeDeviationAndAngles(rec, hit.point);
+        SpawnMarker(hit);
+        rec.explanation = BuildExplanation(rec);
+        Debug.Log($"ShotManager: Hit id={shotId} dev={rec.deviationMeters:F3} m ang={rec.angularErrorDeg:F2}°");
+    }
+
+    public void RegisterMiss(int shotId, Vector3 finalPos)
+    {
+        var rec = shotRecords.Find(s => s.shotId == shotId);
+        if (rec == null) { Debug.LogWarning($"RegisterMiss unknown id {shotId}"); return; }
+
+        rec.hit = false;
+        rec.hitPoint = finalPos;
+        rec.targetName = "Miss";
+        rec.energyJ = 0f;
+
+        ComputeDeviationAndAngles(rec, finalPos);
+        rec.explanation = BuildExplanation(rec);
+        Debug.Log($"ShotManager: Miss id={shotId} dev={rec.deviationMeters:F3} m ang={rec.angularErrorDeg:F2}°");
+    }
+
+    private void ComputeDeviationAndAngles(ShotRecord rec, Vector3 actualPoint)
+    {
+        rec.deviationMeters = Vector3.Distance(rec.predictedPoint, actualPoint);
+        rec.deviationPercent = rec.targetDistanceMeters > 0f ? (rec.deviationMeters / rec.targetDistanceMeters) * 100f : 0f;
+
+        Vector3 origin = FindObjectOfType<WeaponViewController>()?.transform.position ?? Vector3.zero;
+        Vector3 dirPred = (rec.predictedPoint - origin).normalized;
+        Vector3 dirReal = (actualPoint - origin).normalized;
+
+        rec.angularErrorDeg = Vector3.Angle(dirPred, dirReal);
+        rec.angularErrorMOA = rec.angularErrorDeg * 60f;
+        rec.angularErrorMrad = rec.angularErrorDeg * Mathf.Deg2Rad * 1000f;
+
+        Vector3 right = Vector3.Cross(Vector3.up, dirPred).normalized;
+        Vector3 up = Vector3.Cross(dirPred, right).normalized;
+        Vector3 delta = actualPoint - rec.predictedPoint;
+        rec.offsetMeters = new Vector2(Vector3.Dot(delta, right), Vector3.Dot(delta, up));
+    }
+
+    private string BuildExplanation(ShotRecord s)
+    {
+        string hitTxt = s.hit ? $"Impactó en '{s.targetName}'" : "No impactó (Miss)";
+        return $"{hitTxt} a {s.targetDistanceMeters:F1} m | Desviación: {s.deviationMeters:F3} m ({s.deviationPercent:F2}%) | " +
+               $"Offset H:{s.offsetMeters.x:F3} m V:{s.offsetMeters.y:F3} m | " +
+               $"Error angular: {s.angularErrorDeg:F2}° ({s.angularErrorMOA:F1} MOA) | Energía: {s.energyJ:F1} J";
+    }
+
+    private void SaveSession()
+    {
+        if (shotRecords.Count == 0) { Debug.Log("ShotManager: no shots to save."); return; }
+
+        var ws = FindObjectOfType<WeaponShooter>();
+        var session = new SessionRecord
+        {
+            sessionName = $"session_{DateTime.Now:yyyyMMdd_HHmmss}",
+            dateTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+            weaponName = ws != null ? ws.WeaponName : "Unknown",
+            weaponMassKg = ws != null ? ws.WeaponMassKg : 0f,
+            barrelLengthMeters = ws != null ? ws.BarrelLengthMeters : 0f,
+            ammoName = ws != null ? ws.AmmoName : "Unknown",
+            muzzleVelocity = ws != null ? ws.AmmoVelocity : 0f,
+            magazineSize = maxAmmo,
+            shots = new List<ShotRecord>(shotRecords),
+            screenshotFileName = ""
+        };
+
+        string basePath = Application.persistentDataPath;
+
+        if (previewCamera != null && previewCamera.targetTexture != null)
+        {
+            RenderTexture rt = previewCamera.targetTexture;
+            RenderTexture current = RenderTexture.active;
+            RenderTexture.active = rt;
+            Texture2D tex = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            tex.Apply();
+            byte[] png = tex.EncodeToPNG();
+            string pngName = session.sessionName + "_target.png";
+            File.WriteAllBytes(Path.Combine(basePath, pngName), png);
+            session.screenshotFileName = pngName;
+            Destroy(tex);
+            RenderTexture.active = current;
+        }
+
+        File.WriteAllText(Path.Combine(basePath, session.sessionName + ".json"), JsonUtility.ToJson(session, true));
+
+        using (StreamWriter sw = new StreamWriter(Path.Combine(basePath, session.sessionName + "_summary.txt")))
+        {
+            sw.WriteLine($"Weapon: {session.weaponName}");
+            sw.WriteLine($"Ammo: {session.ammoName}");
+            sw.WriteLine($"Date: {session.dateTime}");
+            sw.WriteLine("");
+            foreach (var s in session.shots) sw.WriteLine(s.explanation);
+            if (!string.IsNullOrEmpty(session.screenshotFileName)) sw.WriteLine($"Screenshot: {session.screenshotFileName}");
+        }
+
+        Debug.Log($"ShotManager: Session saved to {basePath} as {session.sessionName}");
+    }
+
+    private void Reload()
+    {
+        ClearMarkers();
+        shotRecords.Clear();
+        nextShotId = 0;
+        currentAmmo = maxAmmo;
+        UpdateUI();
+        FindObjectOfType<WeaponViewController>()?.ForceExitAimLock(false);
+        if (reloadPrompt != null) reloadPrompt.SetActive(false);
+        OnReloaded?.Invoke();
+    }
+
+    private void ClearMarkers()
+    {
+        foreach (var m in markers) if (m != null) Destroy(m);
+        markers.Clear();
     }
 
     private void UpdateUI()
     {
-        if (ammoText != null)
-            ammoText.text = $"Ammo: {currentAmmo}/{maxAmmo}";
+        if (ammoText != null) ammoText.text = $"Ammo: {currentAmmo}/{maxAmmo}";
     }
 
-    public void RegisterHit(RaycastHit hit, float energyJ, Vector3 impactVelocity)
+    private System.Collections.IEnumerator DelayedLockAfterLastShot()
     {
-        if (hitMarkerPrefab != null)
-        {
-            Vector3 spawnPos = hit.point + hit.normal * markerOffset;
-            GameObject marker = Instantiate(hitMarkerPrefab, spawnPos, Quaternion.LookRotation(hit.normal));
-            if (hit.collider != null && hit.collider.transform != null)
-                marker.transform.SetParent(hit.collider.transform, true);
-            else if (markersRoot != null)
-                marker.transform.SetParent(markersRoot, true);
-            markers.Add(marker);
-        }
-
-        HitRecord rec = new HitRecord
-        {
-            time = Time.time,
-            worldPos = hit.point,
-            localPos = (hit.collider != null) ? hit.collider.transform.InverseTransformPoint(hit.point) : Vector3.zero,
-            energyJ = energyJ,
-            targetName = hit.collider != null ? hit.collider.name : "Unknown"
-        };
-        hitRecords.Add(rec);
-
-        Debug.Log($"ShotManager: Registered hit on {rec.targetName} E={rec.energyJ:F2}J at {rec.worldPos}");
+        yield return new WaitForSeconds(lockDelaySeconds);
+        FindObjectOfType<WeaponViewController>()?.ForceExitAimLock(true);
+        if (reloadPrompt != null) reloadPrompt.SetActive(true);
+        lockCoroutine = null;
     }
 
-    public void Reload()
+    private void SpawnMarker(RaycastHit hit)
     {
-        if (lockCoroutine != null)
-        {
-            StopCoroutine(lockCoroutine);
-            lockCoroutine = null;
-        }
-
-        ClearMarkers();
-        hitRecords.Clear();
-
-        currentAmmo = maxAmmo;
-        UpdateUI();
-
-        if (weaponView != null)
-            weaponView.ForceExitAimLock(false);
-
-        if (reloadPrompt != null)
-            reloadPrompt.SetActive(false);
-
-        OnReloaded?.Invoke();
+        if (hitMarkerPrefab == null) return;
+        Vector3 pos = hit.point + hit.normal * markerOffset;
+        GameObject m = Instantiate(hitMarkerPrefab, pos, Quaternion.LookRotation(hit.normal));
+        if (hit.collider != null) m.transform.SetParent(hit.collider.transform, true);
+        else if (markersRoot != null) m.transform.SetParent(markersRoot, true);
+        markers.Add(m);
     }
-
-    public void ClearMarkers()
-    {
-        for (int i = 0; i < markers.Count; i++)
-            if (markers[i] != null) Destroy(markers[i]);
-        markers.Clear();
-    }
-
-    public IReadOnlyList<HitRecord> GetHitRecords() => hitRecords.AsReadOnly();
 }

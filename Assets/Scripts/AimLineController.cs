@@ -1,29 +1,26 @@
 ﻿using UnityEngine;
 
+/// <summary>
+/// Dibuja la trayectoria balística en varios puntos usando integración simple.
+/// Permite runtime SetMuzzle / SetMuzzleVelocity y consulta de punto predicho.
+/// </summary>
 [RequireComponent(typeof(LineRenderer))]
 public class AimLineController : MonoBehaviour
 {
-    [Header("References")]
-    [SerializeField] private MonoBehaviour weaponViewSource;
-
-    [Header("Ballistics")]
-    [SerializeField, Range(5, 80)] private int segments = 32;
+    [SerializeField, Range(8, 256)] private int maxSegments = 64;
     [SerializeField] private float timeStep = 0.05f;
     [SerializeField] private float maxDistance = 150f;
-
-    [Header("Visual")]
     [SerializeField] private float textureTiling = 1.25f;
 
+    [SerializeField] private MonoBehaviour weaponViewSource;
     private IWeaponView weaponView;
     private LineRenderer line;
-
     private Transform muzzle;
     private float muzzleVelocity = 300f;
 
     private void Awake()
     {
         weaponView = weaponViewSource as IWeaponView;
-
         line = GetComponent<LineRenderer>();
         line.enabled = false;
         line.textureMode = LineTextureMode.Tile;
@@ -43,48 +40,59 @@ public class AimLineController : MonoBehaviour
     private void DrawBallisticCurve()
     {
         Vector3 origin = muzzle.position;
-        Vector3 velocity = muzzle.forward * muzzleVelocity;
-        Vector3 gravity = Physics.gravity;
+        Vector3 vel = muzzle.forward * muzzleVelocity;
+        Vector3 g = Physics.gravity;
 
         float traveled = 0f;
-        Vector3 prevPoint = origin;
+        Vector3 prev = origin;
+        int actualCount = 0;
 
-        line.positionCount = segments;
+        line.positionCount = maxSegments;
 
-        for (int i = 0; i < segments; i++)
+        for (int i = 0; i < maxSegments; i++)
         {
             float t = i * timeStep;
+            Vector3 p = origin + vel * t + 0.5f * g * t * t;
 
-            Vector3 point =
-                origin +
-                velocity * t +
-                0.5f * gravity * t * t;
+            traveled += Vector3.Distance(prev, p);
+            line.SetPosition(i, p);
+            prev = p;
+            actualCount = i + 1;
 
-            traveled += Vector3.Distance(prevPoint, point);
-            if (traveled > maxDistance)
-            {
-                line.positionCount = i + 1;
-                break;
-            }
-
-            line.SetPosition(i, point);
-            prevPoint = point;
+            if (traveled >= maxDistance) break;
         }
 
-        line.material.mainTextureScale = new Vector2(segments * textureTiling, 1f);
+        line.positionCount = actualCount;
+        if (line.material != null)
+            line.material.mainTextureScale = new Vector2(actualCount * textureTiling, 1f);
+
         line.enabled = true;
     }
 
-    // -------------------------------------------------
-    // Runtime wiring (called by WeaponInventoryManager)
-    // -------------------------------------------------
-    public void SetMuzzle(Transform newMuzzle)
-    {
-        muzzle = newMuzzle;
-    }
+    public void SetMuzzle(Transform newMuzzle) => muzzle = newMuzzle;
+    public void SetMuzzleVelocity(float v) => muzzleVelocity = Mathf.Max(1f, v);
 
-    public void SetMuzzleVelocity(float velocity)
+    public Vector3 GetPredictedPointAtDistance(float meters)
     {
-        muzzleVelocity = Mathf.Max(1f, velocity);
+        if (muzzle == null) return Vector3.zero;
+        Vector3 origin = muzzle.position;
+        Vector3 vel = muzzle.forward * muzzleVelocity;
+        Vector3 g = Physics.gravity;
+
+        float traveled = 0f;
+        Vector3 prev = origin;
+        int steps = Mathf.Max(8, maxSegments);
+
+        for (int i = 0; i < steps; i++)
+        {
+            float t = i * timeStep;
+            Vector3 p = origin + vel * t + 0.5f * g * t * t;
+            traveled += Vector3.Distance(prev, p);
+            prev = p;
+            if (traveled >= meters) return p;
+        }
+
+        float tFinal = (steps - 1) * timeStep;
+        return origin + vel * tFinal + 0.5f * g * tFinal * tFinal;
     }
 }
