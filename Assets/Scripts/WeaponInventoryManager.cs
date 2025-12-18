@@ -158,7 +158,24 @@ public class WeaponInventoryManager : MonoBehaviour
                 modelGO.transform.localEulerAngles = connector.modelLocalEulerOffset;
 
                 if (connector.muzzle != null)
-                    weaponShooter.SetMuzzle(connector.muzzle);
+                {
+                    Transform muzzleT = connector.muzzle;
+
+                    // WeaponShooter
+                    weaponShooter.SetMuzzle(muzzleT);
+
+                    // AimLine
+                    var aimLine = FindObjectOfType<AimLineController>();
+                    if (aimLine != null)
+                    {
+                        aimLine.SetMuzzle(muzzleT);
+
+                    }
+
+                    if (p.ammoData != null)
+                        aimLine.SetMuzzleVelocity(p.ammoData.MuzzleVelocity);
+                }
+
 
                 CameraAimController camAim = FindObjectOfType<CameraAimController>();
                 if (camAim != null && connector.sightPoint != null)

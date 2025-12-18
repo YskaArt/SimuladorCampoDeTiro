@@ -113,8 +113,8 @@ public class WeaponShooter : MonoBehaviour
         if (recoilPivot != null)
         {
             float momentum = ammo.MassKg * finalVelocity;
-            float effectiveMomentum = momentum * gasMultiplier;
-            float pitchDeg = effectiveMomentum * 0.9f;
+            float effectiveMomentum = (momentum * gasMultiplier) / Mathf.Max(weaponMassKg, 0.1f);
+            float pitchDeg = effectiveMomentum * 0.55f;
             float yawDeg = Random.Range(-0.15f, 0.15f);
             float rollDeg = Random.Range(-0.05f, 0.05f);
             float backMove = effectiveMomentum * 0.0006f;

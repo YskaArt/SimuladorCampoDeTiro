@@ -165,8 +165,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::AimLineController
   weaponViewSource: {fileID: 1068566376}
-  muzzle: {fileID: 1250683360}
+  segments: 12
+  timeStep: 0.05
   maxDistance: 200
+  textureTiling: 1.25
 --- !u!120 &46366277
 LineRenderer:
   serializedVersion: 2
@@ -360,7 +362,7 @@ MonoBehaviour:
   m_HandleRect: {fileID: 2105197223}
   m_Direction: 2
   m_Value: 0
-  m_Size: 1
+  m_Size: 0.85999984
   m_NumberOfSteps: 0
   m_OnValueChanged:
     m_PersistentCalls:
@@ -701,7 +703,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: 0, y: -0.000017166138}
+  m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 0, y: 28}
   m_Pivot: {x: 0.5, y: 1}
 --- !u!1 &295332535
@@ -2735,7 +2737,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::WeaponRecoilPivot
   rotationReturnSpeed: 2
   positionReturnSpeed: 2
-  recoilBackLocal: {x: -50, y: 0, z: 0}
+  recoilBackLocal: {x: -25, y: 0, z: 0}
   recoilAxis: {fileID: 380246894}
 --- !u!1 &944505921
 GameObject:
