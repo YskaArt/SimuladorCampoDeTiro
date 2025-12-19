@@ -11,8 +11,7 @@ public class TargetPlacementController : MonoBehaviour
     [Header("References")]
     public Transform originTransform;
     public Transform targetTransform;
-    public GameObject targetPrefab;
-    public Transform targetsParent;
+
 
     [Header("Distances (meters)")]
     public float[] presetDistances = { 25f, 50f, 100f };
@@ -50,11 +49,6 @@ public class TargetPlacementController : MonoBehaviour
             distanceDropdown.onValueChanged.AddListener(SetDistanceIndex);
         }
 
-        if (targetTransform == null && targetPrefab != null)
-        {
-            GameObject t = Instantiate(targetPrefab, Vector3.zero, Quaternion.identity, targetsParent);
-            targetTransform = t.transform;
-        }
 
         if (presetDistances.Length > 0)
             PlaceAtMeters(presetDistances[0]);
@@ -96,7 +90,7 @@ public class TargetPlacementController : MonoBehaviour
         }
 
         targetTransform.position = finalPos;
-
+        TargetMover.Instance?.RebindInitialPosition();
         // yaw only (horizontal look)
         Vector3 lookDir = origin - finalPos;
         lookDir.y = 0f;
