@@ -164,11 +164,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: dba9cbbf3e5e99f49af527a8c2426a5e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::AimLineController
-  weaponViewSource: {fileID: 1068566376}
-  segments: 12
+  maxSegments: 64
   timeStep: 0.05
   maxDistance: 200
   textureTiling: 1.25
+  weaponViewSource: {fileID: 1068566376}
 --- !u!120 &46366277
 LineRenderer:
   serializedVersion: 2
@@ -703,7 +703,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 0, y: 0.0000038146973}
   m_SizeDelta: {x: 0, y: 28}
   m_Pivot: {x: 0.5, y: 1}
 --- !u!1 &295332535
@@ -1162,6 +1162,7 @@ GameObject:
   - component: {fileID: 330585544}
   - component: {fileID: 330585547}
   - component: {fileID: 330585548}
+  - component: {fileID: 330585549}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -1303,6 +1304,29 @@ MonoBehaviour:
   sightCameraPoint: {fileID: 1700195987}
   positionSpeed: 5
   rotationSpeed: 5
+--- !u!114 &330585549
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 330585543}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c89709ffe419b694abe3439b7134bea4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::WeaponAimController
+  weaponViewSource: {fileID: 1068566376}
+  weaponLayerMask:
+    serializedVersion: 2
+    m_Bits: 64
+  checkRadius: 0.06
+  maxBackDistance: 0.45
+  backStep: 0.02
+  positionLerp: 12
+  rotationLerp: 20
+  adjustNearClip: 1
+  aimNearClip: 0.01
 --- !u!1001 &380246893
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -2817,11 +2841,10 @@ MonoBehaviour:
   maxAmmo: 15
   ammoText: {fileID: 648106664}
   reloadPrompt: {fileID: 1473752754}
-  previewRawImage: {fileID: 1435765644}
   previewCamera: {fileID: 447016656}
+  previewRawImage: {fileID: 1435765644}
   hitMarkerPrefab: {fileID: 8776501618624954554, guid: 5b10bc1639786394a82f6078f800f372, type: 3}
   markersRoot: {fileID: 0}
-  weaponView: {fileID: 1068566376}
   markerOffset: 0.01
   lockDelaySeconds: 1.5
 --- !u!1 &1068566374
@@ -2906,10 +2929,10 @@ MonoBehaviour:
     m_Bits: 8
   fireRate: 300
   bulletPrefab: {fileID: 6249462147383463577, guid: 4e06cde317efecc449761be78566accb, type: 3}
-  recoilPivot: {fileID: 908050395}
   weaponMassKg: 0.61
   gasMultiplier: 1.25
-  weaponView: {fileID: 1068566376}
+  positionKickFactor: 0.015
+  rotationKickFactor: 2.5
 --- !u!1 &1102844560
 GameObject:
   m_ObjectHideFlags: 0

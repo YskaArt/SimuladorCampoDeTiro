@@ -3,7 +3,10 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Mantiene presets y aplica selección en runtime (modelo, muzzle, sight, recoil axis, weapon/ ammo).
+/// Mantiene presets y aplica selección en runtime:
+/// - Instancia el modelo del arma
+/// - Asigna muzzle, sightPoint, frontSight
+/// - Configura WeaponShooter, AimLine, CameraAim, WeaponAimController
 /// </summary>
 public class WeaponInventoryManager : MonoBehaviour
 {
@@ -19,7 +22,10 @@ public class WeaponInventoryManager : MonoBehaviour
         public GameObject weaponModelPrefab;
     }
 
+    [Header("Presets")]
     [SerializeField] private List<WeaponPreset> presets = new();
+
+    [Header("References")]
     [SerializeField] private WeaponShooter weaponShooter;
     [SerializeField] private WeaponPanelUI panelUI;
 
@@ -27,9 +33,12 @@ public class WeaponInventoryManager : MonoBehaviour
     private int activeIndex = -1;
     private bool selectionLocked = false;
 
+    // ------------------------------------------------------------
+
     private void Awake()
     {
-        if (weaponShooter == null) weaponShooter = FindObjectOfType<WeaponShooter>();
+        if (weaponShooter == null)
+            weaponShooter = FindObjectOfType<WeaponShooter>();
     }
 
     private void Start()
@@ -46,7 +55,10 @@ public class WeaponInventoryManager : MonoBehaviour
             UpdatePanel();
             ApplyPresetToActive(previewIndex, autoEquip: true);
         }
-        else panelUI?.SetEmpty();
+        else
+        {
+            panelUI?.SetEmpty();
+        }
     }
 
     private void OnDestroy()
@@ -58,68 +70,171 @@ public class WeaponInventoryManager : MonoBehaviour
         }
     }
 
-    public void NextPreview() { if (selectionLocked || presets.Count == 0) return; previewIndex = (previewIndex + 1) % presets.Count; UpdatePanel(); }
-    public void PrevPreview() { if (selectionLocked || presets.Count == 0) return; previewIndex = (previewIndex - 1 + presets.Count) % presets.Count; UpdatePanel(); }
-    public void SelectPreviewAsActive() { if (selectionLocked) return; ApplyPresetToActive(previewIndex, autoEquip: false); }
+    // ------------------------------------------------------------
+    // UI Navigation
+    // ------------------------------------------------------------
+
+    public void NextPreview()
+    {
+        if (selectionLocked || presets.Count == 0) return;
+        previewIndex = (previewIndex + 1) % presets.Count;
+        UpdatePanel();
+    }
+
+    public void PrevPreview()
+    {
+        if (selectionLocked || presets.Count == 0) return;
+        previewIndex = (previewIndex - 1 + presets.Count) % presets.Count;
+        UpdatePanel();
+    }
+
+    public void SelectPreviewAsActive()
+    {
+        if (selectionLocked) return;
+        ApplyPresetToActive(previewIndex, autoEquip: false);
+    }
+
+    // ------------------------------------------------------------
+    // Core equip logic
+    // ------------------------------------------------------------
 
     private void ApplyPresetToActive(int index, bool autoEquip)
     {
         if (index < 0 || index >= presets.Count) return;
-        var p = presets[index];
-        if (weaponShooter != null) weaponShooter.SetWeaponReference(p.weaponData, p.ammoData);
+
+        WeaponPreset p = presets[index];
+
+        // 1️⃣ Weapon / Ammo
+        if (weaponShooter != null)
+            weaponShooter.SetWeaponReference(p.weaponData, p.ammoData);
+
         ShotManager.Instance?.SetAmmo(p.magazineSize, p.magazineSize);
 
-        var recoilPivot = weaponShooter != null ? weaponShooter.GetComponentInChildren<WeaponRecoilPivot>(true) : FindObjectOfType<WeaponRecoilPivot>();
-        if (recoilPivot == null) { Debug.LogError("No WeaponRecoilPivot found."); return; }
+        // 2️⃣ Recoil pivot
+        WeaponRecoilPivot recoilPivot =
+            weaponShooter != null
+                ? weaponShooter.GetComponentInChildren<WeaponRecoilPivot>(true)
+                : FindObjectOfType<WeaponRecoilPivot>();
 
-        var parent = recoilPivot.transform;
-        for (int i = parent.childCount - 1; i >= 0; i--) Destroy(parent.GetChild(i).gameObject);
+        if (recoilPivot == null)
+        {
+            Debug.LogError("WeaponInventoryManager: No WeaponRecoilPivot found.");
+            return;
+        }
 
+        Transform parent = recoilPivot.transform;
+
+        // 3️⃣ Clear previous model
+        for (int i = parent.childCount - 1; i >= 0; i--)
+            Destroy(parent.GetChild(i).gameObject);
+
+        // 4️⃣ Instantiate model
         if (p.weaponModelPrefab != null)
         {
             GameObject modelGO = Instantiate(p.weaponModelPrefab, parent, false);
-            var connector = modelGO.GetComponent<WeaponModelConnector>();
-            if (connector != null)
+            WeaponModelConnector connector = modelGO.GetComponent<WeaponModelConnector>();
+
+            if (connector == null)
             {
-                modelGO.transform.localPosition = connector.modelLocalPositionOffset;
-                modelGO.transform.localEulerAngles = connector.modelLocalEulerOffset;
-
-                if (connector.muzzle != null) weaponShooter.SetMuzzle(connector.muzzle);
-
-                var aimLine = FindObjectOfType<AimLineController>();
-                if (aimLine != null && connector.muzzle != null)
-                {
-                    aimLine.SetMuzzle(connector.muzzle);
-                    if (p.ammoData != null) aimLine.SetMuzzleVelocity(p.ammoData.MuzzleVelocity);
-                }
-
-                var camAim = FindObjectOfType<CameraAimController>();
-                if (camAim != null && connector.sightPoint != null) camAim.SetSightPoint(connector.sightPoint);
-                if (connector.recoilAxis != null) recoilPivot.SetRecoilAxis(connector.recoilAxis);
+                Debug.LogWarning($"Weapon prefab {modelGO.name} has no WeaponModelConnector.");
+                return;
             }
-            else Debug.LogWarning($"Weapon prefab {modelGO.name} has no WeaponModelConnector.");
+
+            // Model offsets
+            modelGO.transform.localPosition = connector.modelLocalPositionOffset;
+            modelGO.transform.localEulerAngles = connector.modelLocalEulerOffset;
+
+            // 5️⃣ Muzzle
+            if (connector.muzzle != null)
+                weaponShooter.SetMuzzle(connector.muzzle);
+
+            // 6️⃣ Aim line (trayectoria)
+            AimLineController aimLine = FindObjectOfType<AimLineController>();
+            if (aimLine != null && connector.muzzle != null)
+            {
+                aimLine.SetMuzzle(connector.muzzle);
+                if (p.ammoData != null)
+                    aimLine.SetMuzzleVelocity(p.ammoData.MuzzleVelocity);
+            }
+
+            // 7️⃣ CameraAimController (posición base ADS)
+            CameraAimController camAim = FindObjectOfType<CameraAimController>();
+            if (camAim != null && connector.sightPoint != null)
+            {
+                camAim.SetSightPoint(connector.sightPoint);
+            }
+
+            // 8️⃣ WeaponAimController (ADS REAL, evita atravesar el arma)
+            WeaponAimController weaponAim = Camera.main?.GetComponent<WeaponAimController>();
+            if (weaponAim != null)
+            {
+                weaponAim.SetSightPoints(
+                    connector.sightPoint,
+                    connector.frontSight
+                );
+            }
+
+            // 9️⃣ Recoil axis
+            if (connector.recoilAxis != null)
+                recoilPivot.SetRecoilAxis(connector.recoilAxis);
         }
 
         activeIndex = index;
         selectionLocked = false;
         UpdatePanel();
+
         Debug.Log($"Weapon equipped: {p.displayName}");
     }
+
+    // ------------------------------------------------------------
+    // UI
+    // ------------------------------------------------------------
 
     private void UpdatePanel()
     {
         if (panelUI == null) return;
-        if (presets.Count == 0) { panelUI.SetEmpty(); return; }
-        var p = presets[previewIndex];
+        if (presets.Count == 0)
+        {
+            panelUI.SetEmpty();
+            return;
+        }
+
+        WeaponPreset p = presets[previewIndex];
         bool isActive = previewIndex == activeIndex;
-        panelUI.UpdatePanel(p.displayName, p.weaponType,
+
+        panelUI.UpdatePanel(
+            p.displayName,
+            p.weaponType,
             p.weaponData != null ? p.weaponData.weaponName : "N/A",
             p.ammoData != null ? p.ammoData.AmmoName : "N/A",
-            p.magazineSize, p.description, isActive, selectionLocked);
+            p.magazineSize,
+            p.description,
+            isActive,
+            selectionLocked
+        );
     }
 
-    private void OnFirstShotHandler() { selectionLocked = true; UpdatePanel(); }
-    private void OnReloadedHandler() { selectionLocked = false; UpdatePanel(); }
+    // ------------------------------------------------------------
+    // ShotManager events
+    // ------------------------------------------------------------
 
-    public void AddPreset(WeaponPreset preset) { presets.Add(preset); UpdatePanel(); }
+    private void OnFirstShotHandler()
+    {
+        selectionLocked = true;
+        UpdatePanel();
+    }
+
+    private void OnReloadedHandler()
+    {
+        selectionLocked = false;
+        UpdatePanel();
+    }
+
+    // ------------------------------------------------------------
+
+    public void AddPreset(WeaponPreset preset)
+    {
+        presets.Add(preset);
+        UpdatePanel();
+    }
 }
