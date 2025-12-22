@@ -1142,7 +1142,7 @@ MonoBehaviour:
       ~ 5.5 g (85 grains)\n\nDistancia de alta precisi\xF3n: 40\u201360 m\n\nEnerg\xEDa
       en boca: ~ 500\u2013550 J"
     weaponModelPrefab: {fileID: 4164302835049914152, guid: c8fde24a5dfc1334a9bdab8b21bb9dfe, type: 3}
-    shotSFX: {fileID: 8300000, guid: 685cda17d89a4a641a90ff646c43cba3, type: 3}
+    shotSFX: {fileID: 8300000, guid: 998c9e9dfb6b19c47847d466b60df965, type: 3}
     emptySFX: {fileID: 0}
   - displayName: M1 Garand
     weaponType: Rifle (Semi-Auto)
@@ -6198,8 +6198,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c981e52b0016d3f4d9edb091fc439fda, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::AudioManager
-  sfxSource: {fileID: 1068566378}
-  defaultVolume: 0.9
+  masterVolume: 1
+  defaultVolume3D: 1
+  defaultSpatialBlend: 1
+  defaultMinDistance: 0.5
+  defaultMaxDistance: 50
 --- !u!1 &2053378838
 GameObject:
   m_ObjectHideFlags: 0
